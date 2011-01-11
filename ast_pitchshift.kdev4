@@ -1,0 +1,4 @@
+[Project]
+Name=ast_pitchshift
+Manager=KDevCMakeManager
+VersionControl=kdevgit
