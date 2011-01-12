@@ -27,8 +27,10 @@
 
 #include <pitchshift.h>
 
-struct voicechanger {
+struct pitchshift_dsd {
 	PitchShiftCtx_t *ctx;
+	double pitch;
+	double outgain;
 	struct ast_audiohook ah[1];
 };
 
@@ -37,6 +39,7 @@ static const char *synopsis = "Adjusts the pitch of your voice";
 static const char *desc = ""
 						  "  PitchShift(<pitch>,<gain>)\n\n"
 						  "Specify a pitch in interval 0.5 .. 2  Like <1 for deeper and >1 for higher.\n"
+						  "gain is typicaly around 0.05\n"
 						  "";
 						  
 static const char *stop_app = "StopPitchShift";
@@ -55,8 +58,7 @@ static int audio_callback(
 	enum ast_audiohook_direction direction)
 {
 	struct ast_datastore *ds;
-	struct voicechanger *vc;
-	void *st;
+	struct pitchshift_dsd *dsd;
 	
 	if (!audiohook || !chan || !frame || direction != AST_AUDIOHOOK_DIRECTION_READ) {
 		return 0;
@@ -67,129 +69,147 @@ static int audio_callback(
 	ast_channel_lock(chan);
 	
 	if (!(ds = ast_channel_datastore_find(chan, dsinfo, app)) ||
-		!(vc = (struct voicechanger *)ds->data) ||
-		!(vc->ctx) 
+		!(dsd = (struct pitchshift_dsd *)ds->data) 
 	){
 		ast_channel_unlock(chan);
 		ast_log(LOG_WARNING, "where my data at?\n");
 		return 0;
 	}
-		
+	
+	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2) {
+		ast_channel_unlock(chan);
+		return 0; //pitch disabled at this levels
+	}
+	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
 		ast_log(LOG_WARNING, "got incompatible frame\n");
 		return 0;
 	}
-			
-			switch (frame->subclass) {
-				case AST_FORMAT_SLINEAR:
-					st = vc->st8k;
-					break;
-				case AST_FORMAT_SLINEAR16:
-					st = vc->st16k;
-					break;
-				default:
-					ast_channel_unlock(chan);
-					ast_log(LOG_WARNING, "bad audio type: %s\n", ast_getformatname(frame->subclass));
-					return 0;
-			}
-			
-			float fbuf[frame->samples];
-			//vc_voice_change(st, fbuf, (int16_t *)frame->data.ptr, frame->samples, frame->datalen);
-			
-			ast_channel_unlock(chan);
-			
+	
+	if (!dsd->ctx) {
+		switch (frame->subclass) {
+			case AST_FORMAT_SLINEAR:
+				dsd->ctx=PitchShiftInit(8000,10,4, dsd->outgain,S16);
+			break;
+			case AST_FORMAT_SLINEAR16:
+				dsd->ctx=PitchShiftInit(16000,10,4, dsd->outgain,S16);
+			break;
+			default:
+				ast_channel_unlock(chan);
+				ast_log(LOG_WARNING, "bad audio type: %s\n", ast_getformatname(frame->subclass));
 			return 0;
+		}
+		if (!dsd->ctx) {
+			ast_channel_unlock(chan);
+			ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
+			return 0;
+		}
+	}
+	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	PitchShift(dsd->ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	
+	ast_channel_unlock(chan);
+	return 0;
 }
 
-static void voicechanger_free(void *data)
+static void pitchshift_ds_free(void *data)
 {
-	struct voicechanger *vc;
+	struct pitchshift_dsd *dsd;
 	if (data) {
-/*		vc = (struct voicechanger *)data;
-		vc_soundtouch_free(vc->st8k); vc->st8k = NULL;
-		vc_soundtouch_free(vc->st16k); vc->st16k = NULL;
-		ast_audiohook_detach(vc->ah);
-		ast_audiohook_destroy(vc->ah);*/
+		dsd = (struct pitchshift_dsd *)data;
+		if (dsd->ctx) PitchShiftDeInit(dsd->ctx);
 		ast_free(data);
 	}
 	ast_log(LOG_DEBUG, "freed voice changer resources\n");
 }
 
-static int install_vc(struct ast_channel *chan, float pitch, float outgain)
+static int setup_pitchshift(struct ast_channel *chan, float pitch, float outgain)
 {
-	struct ast_datastore *ds=NULL;
-	struct voicechanger *vc=NULL;
-	law_t law;
-	if ((chan->nativeformats & AST_FORMAT_SLINEAR)=AST_FORMAT_SLINEAR) law=S16;
-	else if ((chan->nativeformats & AST_FORMAT_ULAW)=AST_FORMAT_ULAW) law=MULAW;
-	else if ((chan->nativeformats & AST_FORMAT_ALAW)=AST_FORMAT_ALAW) law=ALAW;
-	else {
-		ast_log(LOG_ERROR, "Channel native formats (0x%x) can't be handled by pitchshift\n",chan->nativeformats);
-		return -1;
-	}
-	ast_log(LOG_DEBUG, "pitch is %f\n", pitch);
-	if (-0.1 < pitch && pitch < 0.1) {
+	struct ast_datastore *ds= ast_channel_datastore_find(chan, dsinfo, app);
+	struct pitchshift_dsd *dsd=NULL;
+	if (ds) { //allready running just chanege params:
+		ast_channel_lock(chan);
+		dsd=ds->data;
+		dsd->pitch=pitch;
+		dsd->outgain=outgain;
+		ast_channel_unlock(chan);
+		ast_log(LOG_DEBUG, "updating pitch to %f\n", pitch);
 		return 0;
-	}
+	} else { //init the whole thing:
+		ast_log(LOG_DEBUG, "new pitchshifting with %f\n", pitch);
+
+		dsd=ast_calloc(1, sizeof(struct pitchshift_dsd));
+		/* create audiohook */
+		if (ast_audiohook_init(dsd->ah, AST_AUDIOHOOK_TYPE_MANIPULATE, app)) {
+			pitchshift_ds_free(dsd);
+			ast_log(LOG_WARNING, "failed to make audiohook\n");
+			return -1;
+		}
 	
-	/* create soundtouch object */
-	vc = ast_calloc(1, sizeof(struct voicechanger));
-	if (!(vc->ctx = PitchShiftInit(8000,10,4, pitch,outgain,law))) {
-		ast_log(LOG_ERROR, "failed to initialize context for pitchshift (out of mem?)\n");
-		return -1;
-	}
+		ast_audiohook_lock(dsd->ah);
+		dsd->ah->manipulate_callback = audio_callback;
+		ast_set_flag(dsd->ah, AST_AUDIOHOOK_WANTS_DTMF);
+		ast_audiohook_unlock(dsd->ah);
+
+		/* glue our data thing to channel */
+		ds = ast_datastore_alloc(dsinfo, app);
+		ds->data = dsd;
+		ast_channel_lock(chan);
+		ast_channel_datastore_add(chan, ds);
+		ast_channel_unlock(chan);
 		
-	/* create audiohook */
-	ast_log(LOG_DEBUG, "Creating AudioHook object...\n");
-	if (ast_audiohook_init(vc->ah, AST_AUDIOHOOK_TYPE_MANIPULATE, app)) {
-		voicechanger_free(vc);
-		ast_log(LOG_WARNING, "failed to make audiohook\n");
-		return -1;
-	}
-	
-	ast_audiohook_lock(vc->ah);
-	vc->ah->manipulate_callback = audio_callback;
-	ast_set_flag(vc->ah, AST_AUDIOHOOK_WANTS_DTMF);
-	ast_audiohook_unlock(vc->ah);
-	
-	/* glue audiohook to channel */
-	if (ast_audiohook_attach(chan, vc->ah) == -1) {
-		voicechanger_free(vc);
-		ast_log(LOG_WARNING, "failed to attach hook\n");
-		return -1;
-	}
 		
-	/* glue our data thing to channel */
-	ds = ast_datastore_alloc(dsinfo, app);
-	ds->data = vc;
-	ast_channel_lock(chan);
-	ast_channel_datastore_add(chan, ds);
-	ast_channel_unlock(chan);
+		/* glue audiohook to channel */
+		if (ast_audiohook_attach(chan, dsd->ah) == -1) {
+			ast_channel_lock(chan);
+			ast_channel_datastore_remove(chan, ds);
+			ast_datastore_free(ds);
+			ast_channel_unlock(chan);
+			ast_log(LOG_WARNING, "failed to attach hook\n");
+			return -1;
+		}
+		
+	}
 	
 	return 0;
 }
 
-static int voicechanger_exec(struct ast_channel *chan, void *data)
+static int pitchshift_exec(struct ast_channel *chan, void *data)
 {
-	int rc;
-	struct ast_module_user *u;
-	float pitch;
+	ast_log(LOG_DEBUG, "%s(%s) called!\n",app,data);
+	
+	AST_DECLARE_APP_ARGS(args,
+		 AST_APP_ARG(pitch);
+		 AST_APP_ARG(gain);
+	);
+	
 	if (ast_strlen_zero(data)) {
-		ast_log(LOG_WARNING, "voicechanger() missing argument\n");
+		ast_log(LOG_WARNING, "%s() missing arguments\n",app);
 		return -1;
 	}
-	pitch = strtof(data, NULL);
+	
+	char *tmp = ast_strdupa(data);
+	
+	AST_STANDARD_APP_ARGS(args, tmp);
+	
+	
+	int rc;
+	struct ast_module_user *u;
+	float pitch=1,gain=0.05;
+	if (args.pitch) pitch = strtof(args.pitch, NULL);
+	if (args.gain) gain = strtof(args.gain, NULL);
+	
 	u = ast_module_user_add(chan);
-	rc = install_vc(chan, pitch);
+	rc = setup_pitchshift(chan, pitch,gain);
 	ast_module_user_remove(u);
 	return rc;
 }
 
-static int uninstall_vc(struct ast_channel *chan)
+static int remove_pitchshift(struct ast_channel *chan)
 {
 	struct ast_datastore *ds;
-	ast_log(LOG_DEBUG, "Detaching Voice Changer from channel...\n");
+	ast_log(LOG_DEBUG, "Detaching pitchshift from channel...\n");
 	ast_channel_lock(chan);
 	ds = ast_channel_datastore_find(chan, dsinfo, app);
 	if (ds) {
@@ -200,12 +220,12 @@ static int uninstall_vc(struct ast_channel *chan)
 	return 0;
 }
 
-static int stop_voicechanger_exec(struct ast_channel *chan, void *data)
+static int stop_pitchshift_exec(struct ast_channel *chan, void *data)
 {
 	int rc;
 	struct ast_module_user *u;
 	u = ast_module_user_add(chan);
-	rc = uninstall_vc(chan);
+	rc = remove_pitchshift(chan);
 	ast_module_user_remove(u);
 	return rc;
 }
@@ -223,11 +243,11 @@ static int load_module(void)
 {
 	int res;
 	dsinfo->type = app;
-	dsinfo->destroy = voicechanger_free;
+	dsinfo->destroy = pitchshift_ds_free;
 	res = ast_register_application(
-		app, voicechanger_exec, synopsis, desc);
+		app, pitchshift_exec, synopsis, desc);
 	res |= ast_register_application(
-		stop_app, stop_voicechanger_exec, stop_synopsis, stop_desc);
+		stop_app, stop_pitchshift_exec, stop_synopsis, stop_desc);
 	return res;
 }
 
