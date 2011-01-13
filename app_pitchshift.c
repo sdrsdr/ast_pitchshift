@@ -135,8 +135,8 @@ static int audio_callback(
 				ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
 				return 0;
 			}
-			ctx=dsd->ctxR;
 		}
+		ctx=dsd->ctxR;
 	} else if (direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
 		if (!dsd->ctxW) {
 			switch (frame->subclass) {
@@ -156,8 +156,12 @@ static int audio_callback(
 				ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
 				return 0;
 			}
-			ctx=dsd->ctxW;
 		}
+		ctx=dsd->ctxW;
+	} else {
+		ast_channel_unlock(chan);
+		ast_log(LOG_DEBUG, " What direction this is? %d\n",direction);
+		return 0;
 	}
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	if (ctx) {
