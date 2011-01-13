@@ -30,7 +30,8 @@
 struct pitchshift_dsd {
 	PitchShiftCtx_t *ctx;
 	double pitch;
-	double outgain;
+	int framesin;
+	int framesproc;
 	struct ast_audiohook ah[1];
 };
 
@@ -57,15 +58,27 @@ static int audio_callback(
 	struct ast_frame *frame,
 	enum ast_audiohook_direction direction)
 {
+
+	/*static int logframeskip =0;
+	static int framesin=0;
+	static int framesconsider=0;
+	static int framesprocess=0;
+	framesin++;
+	if (logframeskip==11) {
+		logframeskip=0;
+		ast_log(LOG_DEBUG, "framestat in:%d cons:%d pr:%d\n",framesin,framesconsider,framesprocess);
+	} else logframeskip++;
+	*/
+	
 	struct ast_datastore *ds;
 	struct pitchshift_dsd *dsd;
 	
 	if (!audiohook || !chan || !frame || direction != AST_AUDIOHOOK_DIRECTION_READ) {
 		return 0;
 	}
-	////just return for now
-	return 0;
-
+	
+	//framesconsider++;
+	
 	ast_channel_lock(chan);
 	
 	if (!(ds = ast_channel_datastore_find(chan, dsinfo, app)) ||
@@ -106,6 +119,7 @@ static int audio_callback(
 			return 0;
 		}
 	}
+	//framesprocess++;
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	PitchShift(dsd->ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	
@@ -132,12 +146,14 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float outgain
 		ast_channel_lock(chan);
 		dsd=ds->data;
 		dsd->pitch=pitch;
+		if (dsd->outgain!=outgain && dsd->ctx) ChangeOutGaing (dsd->ctx, outgain);
 		dsd->outgain=outgain;
+		
 		ast_channel_unlock(chan);
-		ast_log(LOG_DEBUG, "updating pitch to %f\n", pitch);
+		ast_log(LOG_DEBUG, "updating pitch to %f og:%f\n", pitch,outgain);
 		return 0;
 	} else { //init the whole thing:
-		ast_log(LOG_DEBUG, "new pitchshifting with %f\n", pitch);
+		ast_log(LOG_DEBUG, "new pitchshifting with %f og:%f\n", pitch,outgain);
 
 		dsd=ast_calloc(1, sizeof(struct pitchshift_dsd));
 		/* create audiohook */
@@ -146,7 +162,9 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float outgain
 			ast_log(LOG_WARNING, "failed to make audiohook\n");
 			return -1;
 		}
-	
+		dsd->pitch=pitch;
+		dsd->outgain=outgain;
+		
 		ast_audiohook_lock(dsd->ah);
 		dsd->ah->manipulate_callback = audio_callback;
 		ast_set_flag(dsd->ah, AST_AUDIOHOOK_WANTS_DTMF);
@@ -177,7 +195,7 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float outgain
 
 static int pitchshift_exec(struct ast_channel *chan, void *data)
 {
-	ast_log(LOG_DEBUG, "%s(%s) called!\n",app,data);
+	ast_log(LOG_DEBUG, "%s(%s) called!\n",app,(char *)data);
 	
 	AST_DECLARE_APP_ARGS(args,
 		 AST_APP_ARG(pitch);
