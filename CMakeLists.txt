@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.6)
 
 set ( AFILTER_SRC "../afilter" CACHE PATH "location of afilter files" )
 set ( ASTERISK_INCLUDES "/usr/include" CACHE PATH "location of asterisk.h" )
-
+set ( ASTERISK_MODULES "/usr/lib/asterisk/modules/" CACHE PATH "where to install the asterisk application" )
 
 add_definitions(-Wall)
 
@@ -16,3 +16,4 @@ add_library (app_pitchshift SHARED app_pitchshift.c)
 set_target_properties(app_pitchshift PROPERTIES PREFIX "" OUTPUT_NAME app_pitchshift)
 
 target_link_libraries(app_pitchshift pitchshift)
+install(TARGETS app_pitchshift DESTINATION ${ASTERISK_MODULES})
