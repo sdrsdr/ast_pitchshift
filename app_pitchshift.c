@@ -66,7 +66,7 @@ static int audio_callback(
 	enum ast_audiohook_direction direction)
 {
 
-	static int logframeskip =0;
+/*	static int logframeskip =0;
 	static int framesin=0;
 	static int framesconsider=0;
 	static int framesprocess=0;
@@ -74,7 +74,7 @@ static int audio_callback(
 	if (logframeskip==11) {
 		logframeskip=0;
 		ast_log(LOG_DEBUG, "framestat in:%d cons:%d pr:%d\n",framesin,framesconsider,framesprocess);
-	} else logframeskip++;
+	} else logframeskip++;*/
 	
 	
 	struct ast_datastore *ds;
@@ -102,13 +102,13 @@ static int audio_callback(
 	
  	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
  		ast_channel_unlock(chan);
- 		return 0; //pitch disabled at this levels
+ 		return 0; //pitch disabled in dis direction
  	}
  	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
  		ast_channel_unlock(chan);
- 		return 0; //pitch disabled at this levels
+		return 0; //pitch disabled in dis direction
  	}
- 	framesconsider++;
+ 	//framesconsider++;
 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
@@ -165,7 +165,7 @@ static int audio_callback(
 	}
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	if (ctx) {
-		framesprocess++;
+		//framesprocess++;
 		PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	}
 	
