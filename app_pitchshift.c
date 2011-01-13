@@ -50,13 +50,35 @@ static const char *desc = ""
 						  "dir  is R,W,B for read, write or both\n"
 						  "";
 						  
-static const char *stop_app = "StopPitchShift";
+static const char *stop_app = "PitchShiftAddGainOut";
 static const char *stop_synopsis = "Removes pitch shifter";
 static const char *stop_desc = ""
 							   "  StopPitchShift()\n\n"
 							   "Removes the pitch shifting effect from a channel, if there is any.\n"
 							   "";
+						  
+static const char *app_addgo = "PitchShiftAddGainOut";
+static const char *addgo_synopsis = "Adds to gainout param of ptich shifting";
+static const char *addgo_desc = ""
+							  "  PitchShiftAddGainOut(<add>)\n\n"
+							  "<add> must be float\n"
+							  "";
 
+						  
+static const char *app_addgi = "PitchShiftAddGainIn";
+static const char *addgi_synopsis = "Adds to gainin param of ptich shifting";
+static const char *addgi_desc = ""
+								"  PitchShiftAddGainIn(<add>)\n\n"
+								"<add> must be float\n"
+								"";
+							  
+static const char *app_addpi = "PitchShiftAddPitch";
+static const char *addpi_synopsis = "Adds to pitch param of ptich shifting";
+static const char *addpi_desc = ""
+								"  PitchShiftAddPitch(<add>)\n\n"
+								"<add> must be float\n"
+								"";
+								
 static struct ast_datastore_info dsinfo[1];
 
 static int audio_callback(
@@ -300,6 +322,72 @@ static int remove_pitchshift(struct ast_channel *chan)
 	return 0;
 }
 
+
+static int  pitchshift_addgo_exec (struct ast_channel *chan, void *data){
+	struct ast_datastore *ds;
+	float gainoutadd=0;
+	if (data) gainoutadd = strtof(data, NULL);
+	ast_log(LOG_DEBUG, "%s(%f)\n",app_addgo,gainoutadd);
+	if (gainoutadd==0.0) return 0;
+	
+	ast_channel_lock(chan);
+	ds = ast_channel_datastore_find(chan, dsinfo, app);
+	if (ds) {
+		struct pitchshift_dsd * dsd=ds->data;
+		if (dsd) {
+			dsd->gainout+=gainoutadd;
+			ast_log(LOG_DEBUG, "new gainout %f\n",dsd->gainout);
+			if (dsd->ctxR) ChangeOutGaing(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) ChangeOutGaing(dsd->ctxW,dsd->gainout);
+		}
+	}
+	ast_channel_unlock(chan);
+	return 0;
+}
+
+
+static int  pitchshift_addgi_exec (struct ast_channel *chan, void *data){
+	struct ast_datastore *ds;
+	float gaininadd=0;
+	if (data) gaininadd = strtof(data, NULL);
+	ast_log(LOG_DEBUG, "%s(%f)\n",app_addgi,gaininadd);
+	if (gaininadd==0.0) return 0;
+	
+	ast_channel_lock(chan);
+	ds = ast_channel_datastore_find(chan, dsinfo, app);
+	if (ds) {
+		struct pitchshift_dsd * dsd=ds->data;
+		if (dsd) {
+			dsd->gainin+=gaininadd;
+			ast_log(LOG_DEBUG, "new gainin %f\n",dsd->gainin);
+			if (dsd->ctxR) ChangeInGaing(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) ChangeInGaing(dsd->ctxW,dsd->gainin);
+		}
+	}
+	ast_channel_unlock(chan);
+	return 0;
+}
+
+static int  pitchshift_addpi_exec (struct ast_channel *chan, void *data){
+	struct ast_datastore *ds;
+	float pitchadd=0;
+	if (data) pitchadd = strtof(data, NULL);
+	ast_log(LOG_DEBUG, "%s(%f)\n",app_addpi,pitchadd);
+	if (pitchadd==0.0) return 0;
+	
+	ast_channel_lock(chan);
+	ds = ast_channel_datastore_find(chan, dsinfo, app);
+	if (ds) {
+		struct pitchshift_dsd * dsd=ds->data;
+		if (dsd) {
+			dsd->pitch+=pitchadd;
+			ast_log(LOG_DEBUG, "new pitch %f\n",dsd->pitch);
+		}
+	}
+	ast_channel_unlock(chan);
+	return 0;
+}
+
 static int stop_pitchshift_exec(struct ast_channel *chan, void *data)
 {
 	int rc;
@@ -315,6 +403,9 @@ static int unload_module(void)
 	int res;
 	res  = ast_unregister_application(app);
 	res |= ast_unregister_application(stop_app);
+	res |= ast_unregister_application(app_addgo);
+	res |= ast_unregister_application(app_addgi);
+	res |= ast_unregister_application(app_addpi);
 	ast_module_user_hangup_all();
 	return res;
 }
@@ -328,6 +419,12 @@ static int load_module(void)
 		app, pitchshift_exec, synopsis, desc);
 	res |= ast_register_application(
 		stop_app, stop_pitchshift_exec, stop_synopsis, stop_desc);
+	res |= ast_register_application(
+		app_addgo, pitchshift_addgo_exec, addgo_synopsis, addgo_desc);
+	res |= ast_register_application(
+		app_addgi, pitchshift_addgi_exec, addgi_synopsis, addgi_desc);
+	res |= ast_register_application(
+		app_addpi, pitchshift_addpi_exec, addpi_synopsis, addpi_desc);
 	return res;
 }
 
