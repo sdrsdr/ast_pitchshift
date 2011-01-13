@@ -100,21 +100,21 @@ static int audio_callback(
 		ast_channel_unlock(chan);
 		return 0; //pitch disabled at this levels
 	}
-	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
-		ast_channel_unlock(chan);
-		return 0; //pitch disabled at this levels
-	}
-	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
-		ast_channel_unlock(chan);
-		return 0; //pitch disabled at this levels
-	}
+// 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
+// 		ast_channel_unlock(chan);
+// 		return 0; //pitch disabled at this levels
+// 	}
+// 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
+// 		ast_channel_unlock(chan);
+// 		return 0; //pitch disabled at this levels
+// 	}
 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
 		ast_log(LOG_WARNING, "got incompatible frame\n");
 		return 0;
 	}
-	PitchShiftCtx_t *ctx;
+	PitchShiftCtx_t *ctx=NULL;
 	if (direction==AST_AUDIOHOOK_DIRECTION_READ) {
 		if (!dsd->ctxR) {
 			switch (frame->subclass) {
@@ -136,7 +136,7 @@ static int audio_callback(
 			}
 			ctx=dsd->ctxR;
 		}
-	} else {
+	} else if (direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
 		if (!dsd->ctxW) {
 			switch (frame->subclass) {
 				case AST_FORMAT_SLINEAR:
@@ -160,7 +160,7 @@ static int audio_callback(
 	}
 	//framesprocess++;
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
-	PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	if (ctx) PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	
 	ast_channel_unlock(chan);
 	return 0;
