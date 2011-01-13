@@ -123,6 +123,7 @@ static int audio_callback(
 					dsd->ctxR=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
 				break;
 				case AST_FORMAT_SLINEAR16:
+					ast_log(LOG_DEBUG, "Note this frame (dir=READ) is 16kHz\n");
 					dsd->ctxR=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
 				break;
 				default:
@@ -144,7 +145,7 @@ static int audio_callback(
 					dsd->ctxW=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
 					break;
 				case AST_FORMAT_SLINEAR16:
-					ast_log(LOG_DEBUG, "Note this frame is 16kHz\n");
+					ast_log(LOG_DEBUG, "Note this frame (dir=WRITE) is 16kHz\n");
 					dsd->ctxW=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
 					break;
 				default:
