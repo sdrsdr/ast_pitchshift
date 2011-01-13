@@ -28,21 +28,26 @@
 #include <pitchshift.h>
 
 struct pitchshift_dsd {
-	PitchShiftCtx_t *ctx;
+	PitchShiftCtx_t *ctxR;
+	PitchShiftCtx_t *ctxW;
 	double pitch;
 	double gainin;
 	double gainout;
 	int framesin;
 	int framesproc;
+	enum ast_audiohook_direction dir;
+	
 	struct ast_audiohook ah[1];
 };
 
 static const char *app = "PitchShift";
 static const char *synopsis = "Adjusts the pitch of your voice";
 static const char *desc = ""
-						  "  PitchShift(<pitch>,<gain>)\n\n"
+						  "  PitchShift(<pitch>,<gainin>,<gainout>,<dir>)\n\n"
 						  "Specify a pitch in interval 0.5 .. 2  Like <1 for deeper and >1 for higher.\n"
-						  "gain is typicaly around 0.05\n"
+						  "gainin is typicaly around 1.0\n"
+						  "gainout is typicaly around 0.05\n"
+						  "dir  is R,W,B for read, write or both\n"
 						  "";
 						  
 static const char *stop_app = "StopPitchShift";
@@ -75,7 +80,7 @@ static int audio_callback(
 	struct ast_datastore *ds;
 	struct pitchshift_dsd *dsd;
 	
-	if (!audiohook || !chan || !frame || direction != AST_AUDIOHOOK_DIRECTION_READ) {
+	if (!audiohook || !chan || !frame ) {
 		return 0;
 	}
 	
@@ -91,7 +96,7 @@ static int audio_callback(
 		return 0;
 	}
 	
-	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2) {
+	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2 || (dsd->dir!=AST_AUDIOHOOK_DIRECTION_BOTH && dsd->dir!=direction)) {
 		ast_channel_unlock(chan);
 		return 0; //pitch disabled at this levels
 	}
@@ -101,29 +106,53 @@ static int audio_callback(
 		ast_log(LOG_WARNING, "got incompatible frame\n");
 		return 0;
 	}
-	
-	if (!dsd->ctx) {
-		switch (frame->subclass) {
-			case AST_FORMAT_SLINEAR:
-				dsd->ctx=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
-			break;
-			case AST_FORMAT_SLINEAR16:
-				dsd->ctx=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
-			break;
-			default:
+	PitchShiftCtx_t *ctx;
+	if (direction==AST_AUDIOHOOK_DIRECTION_READ) {
+		if (!dsd->ctxR) {
+			switch (frame->subclass) {
+				case AST_FORMAT_SLINEAR:
+					dsd->ctxR=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
+				break;
+				case AST_FORMAT_SLINEAR16:
+					dsd->ctxR=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
+				break;
+				default:
+					ast_channel_unlock(chan);
+					ast_log(LOG_WARNING, "bad audio type: %s\n", ast_getformatname(frame->subclass));
+				return 0;
+			}
+			if (!dsd->ctxR) {
 				ast_channel_unlock(chan);
-				ast_log(LOG_WARNING, "bad audio type: %s\n", ast_getformatname(frame->subclass));
-			return 0;
+				ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
+				return 0;
+			}
+			ctx=dsd->ctxR;
 		}
-		if (!dsd->ctx) {
-			ast_channel_unlock(chan);
-			ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
-			return 0;
+	} else {
+		if (!dsd->ctxW) {
+			switch (frame->subclass) {
+				case AST_FORMAT_SLINEAR:
+					dsd->ctxW=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
+					break;
+				case AST_FORMAT_SLINEAR16:
+					dsd->ctxW=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
+					break;
+				default:
+					ast_channel_unlock(chan);
+					ast_log(LOG_WARNING, "bad audio type: %s\n", ast_getformatname(frame->subclass));
+					return 0;
+			}
+			if (!dsd->ctxW) {
+				ast_channel_unlock(chan);
+				ast_log(LOG_WARNING, " Failed to initalizae pitchshifting context! (out of mem?)\n");
+				return 0;
+			}
+			ctx=dsd->ctxW;
 		}
 	}
 	//framesprocess++;
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
-	PitchShift(dsd->ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	
 	ast_channel_unlock(chan);
 	return 0;
@@ -134,7 +163,8 @@ static void pitchshift_ds_free(void *data)
 	struct pitchshift_dsd *dsd;
 	if (data) {
 		dsd = (struct pitchshift_dsd *)data;
-		if (dsd->ctx) PitchShiftDeInit(dsd->ctx);
+		if (dsd->ctxR) PitchShiftDeInit(dsd->ctxR);
+		if (dsd->ctxW) PitchShiftDeInit(dsd->ctxW);
 		ast_free(data);
 	}
 	ast_log(LOG_DEBUG, "freed voice changer resources\n");
@@ -148,10 +178,10 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin,
 		ast_channel_lock(chan);
 		dsd=ds->data;
 		dsd->pitch=pitch;
-		if (dsd->gainout!=gainout && dsd->ctx) ChangeOutGaing (dsd->ctx, gainout);
 		dsd->gainout=gainout;
-		if (dsd->gainin!=gainin && dsd->ctx) ChangeOutGaing (dsd->ctx, gainin);
 		dsd->gainin=gainin;
+		if (dsd->ctxR) ChangeGaing (dsd->ctxR, gainin,gainout);
+		if (dsd->ctxW) ChangeGaing (dsd->ctxW, gainin,gainout);
 		
 		ast_channel_unlock(chan);
 		ast_log(LOG_DEBUG, "updating pitch to %f gi:%f  go:%f\n", pitch,gainin,gainout);
