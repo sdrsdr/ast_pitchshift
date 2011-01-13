@@ -50,7 +50,7 @@ static const char *desc = ""
 						  "dir  is R,W,B for read, write or both\n"
 						  "";
 						  
-static const char *stop_app = "PitchShiftAddGainOut";
+static const char *stop_app = "StopPitchShift";
 static const char *stop_synopsis = "Removes pitch shifter";
 static const char *stop_desc = ""
 							   "  StopPitchShift()\n\n"
