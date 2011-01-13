@@ -96,7 +96,15 @@ static int audio_callback(
 		return 0;
 	}
 	
-	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2 || (dsd->dir!=AST_AUDIOHOOK_DIRECTION_BOTH && dsd->dir!=direction)) {
+	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2 ) {
+		ast_channel_unlock(chan);
+		return 0; //pitch disabled at this levels
+	}
+	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
+		ast_channel_unlock(chan);
+		return 0; //pitch disabled at this levels
+	}
+	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
 		ast_channel_unlock(chan);
 		return 0; //pitch disabled at this levels
 	}
