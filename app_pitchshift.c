@@ -66,7 +66,7 @@ static int audio_callback(
 	enum ast_audiohook_direction direction)
 {
 
-	/*static int logframeskip =0;
+	static int logframeskip =0;
 	static int framesin=0;
 	static int framesconsider=0;
 	static int framesprocess=0;
@@ -75,7 +75,7 @@ static int audio_callback(
 		logframeskip=0;
 		ast_log(LOG_DEBUG, "framestat in:%d cons:%d pr:%d\n",framesin,framesconsider,framesprocess);
 	} else logframeskip++;
-	*/
+	
 	
 	struct ast_datastore *ds;
 	struct pitchshift_dsd *dsd;
@@ -84,7 +84,6 @@ static int audio_callback(
 		return 0;
 	}
 	
-	//framesconsider++;
 	
 	ast_channel_lock(chan);
 	
@@ -100,14 +99,16 @@ static int audio_callback(
 		ast_channel_unlock(chan);
 		return 0; //pitch disabled at this levels
 	}
-// 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
-// 		ast_channel_unlock(chan);
-// 		return 0; //pitch disabled at this levels
-// 	}
-// 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
-// 		ast_channel_unlock(chan);
-// 		return 0; //pitch disabled at this levels
-// 	}
+	
+ 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_READ && direction==AST_AUDIOHOOK_DIRECTION_WRITE) {
+ 		ast_channel_unlock(chan);
+ 		return 0; //pitch disabled at this levels
+ 	}
+ 	if (dsd->dir==AST_AUDIOHOOK_DIRECTION_WRITE && direction==AST_AUDIOHOOK_DIRECTION_READ) {
+ 		ast_channel_unlock(chan);
+ 		return 0; //pitch disabled at this levels
+ 	}
+ 	framesconsider++;
 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
@@ -158,9 +159,11 @@ static int audio_callback(
 			ctx=dsd->ctxW;
 		}
 	}
-	//framesprocess++;
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
-	if (ctx) PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	if (ctx) {
+		framesprocess++;
+		PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	}
 	
 	ast_channel_unlock(chan);
 	return 0;
