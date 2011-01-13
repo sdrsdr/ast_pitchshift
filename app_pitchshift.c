@@ -180,14 +180,15 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin,
 		dsd->pitch=pitch;
 		dsd->gainout=gainout;
 		dsd->gainin=gainin;
+		dsd->dir=dir;
 		if (dsd->ctxR) ChangeGaing (dsd->ctxR, gainin,gainout);
 		if (dsd->ctxW) ChangeGaing (dsd->ctxW, gainin,gainout);
 		
 		ast_channel_unlock(chan);
-		ast_log(LOG_DEBUG, "updating pitch to %f gi:%f  go:%f\n", pitch,gainin,gainout);
+		ast_log(LOG_DEBUG, "updating pitch to %f gi:%f  go:%f d:%d\n", pitch,gainin,gainout,dir);
 		return 0;
 	} else { //init the whole thing:
-		ast_log(LOG_DEBUG, "new pitchshifting with %f gi:%f  go:%f\n", pitch,gainin,gainout);
+		ast_log(LOG_DEBUG, "new pitchshifting with %f gi:%f go:%f d:%d\n", pitch,gainin,gainout,dir);
 
 		dsd=ast_calloc(1, sizeof(struct pitchshift_dsd));
 		/* create audiohook */
@@ -199,6 +200,7 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin,
 		dsd->pitch=pitch;
 		dsd->gainin=gainin;
 		dsd->gainout=gainout;
+		dsd->dir=dir;
 		
 		ast_audiohook_lock(dsd->ah);
 		dsd->ah->manipulate_callback = audio_callback;
