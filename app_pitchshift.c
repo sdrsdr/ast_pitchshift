@@ -170,7 +170,7 @@ static void pitchshift_ds_free(void *data)
 	ast_log(LOG_DEBUG, "freed voice changer resources\n");
 }
 
-static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin, float gainout)
+static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin, float gainout,enum ast_audiohook_direction dir)
 {
 	struct ast_datastore *ds= ast_channel_datastore_find(chan, dsinfo, app);
 	struct pitchshift_dsd *dsd=NULL;
@@ -236,6 +236,7 @@ static int pitchshift_exec(struct ast_channel *chan, void *data)
 		 AST_APP_ARG(pitch);
 		 AST_APP_ARG(gainin);
 		 AST_APP_ARG(gainout);
+		 AST_APP_ARG(dir);
 	);
 	
 	if (ast_strlen_zero(data)) {
@@ -251,12 +252,17 @@ static int pitchshift_exec(struct ast_channel *chan, void *data)
 	int rc;
 	struct ast_module_user *u;
 	float pitch=1,gainin=1,gainout=0.05;
+	enum ast_audiohook_direction dir=AST_AUDIOHOOK_DIRECTION_READ;
 	if (args.pitch) pitch = strtof(args.pitch, NULL);
 	if (args.gainin) gainin = strtof(args.gainin, NULL);
 	if (args.gainout) gainout = strtof(args.gainout, NULL);
+	if (args.dir) {
+		if (*args.dir=='W') dir=AST_AUDIOHOOK_DIRECTION_WRITE;
+		else if (*args.dir=='B') dir=AST_AUDIOHOOK_DIRECTION_BOTH;
+	}
 	
 	u = ast_module_user_add(chan);
-	rc = setup_pitchshift(chan, pitch,gainin,gainout);
+	rc = setup_pitchshift(chan, pitch,gainin,gainout,dir);
 	ast_module_user_remove(u);
 	return rc;
 }
