@@ -134,7 +134,7 @@ static int audio_callback(
 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
-		ast_log(LOG_WARNING, "got incompatible frame\n");
+		ast_log(LOG_WARNING, "got incompatible frame type:%d  sc:%d\n",frame->frametype,frame->subclass);
 		return 0;
 	}
 	PitchShiftCtx_t *ctx=NULL;
