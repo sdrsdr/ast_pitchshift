@@ -16,4 +16,4 @@ add_library (app_pitchshift SHARED app_pitchshift.c)
 set_target_properties(app_pitchshift PROPERTIES PREFIX "" OUTPUT_NAME app_pitchshift)
 
 target_link_libraries(app_pitchshift pitchshift)
-install(TARGETS app_pitchshift DESTINATION ${ASTERISK_MODULES})
+install(TARGETS app_pitchshift DESTINATION ${ASTERISK_MODULES} PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
