@@ -33,6 +33,11 @@ struct pitchshift_dsd {
 	double pitch;
 	double gainin;
 	double gainout;
+	
+	double steppitch;
+	double stepgainin;
+	double stepgainout;
+	
 	int framesin;
 	int framesproc;
 	enum ast_audiohook_direction dir;
@@ -43,11 +48,13 @@ struct pitchshift_dsd {
 static const char *app = "PitchShift";
 static const char *synopsis = "Adjusts the pitch of your voice";
 static const char *desc = ""
-						  "  PitchShift(<pitch>,<gainin>,<gainout>,<dir>)\n\n"
+						  "  PitchShift(<pitch>,<gainin>,<gainout>,<dir>,<steppitch>,<stepgainin>,<stepgainout>)\n\n"
 						  "Specify a pitch in interval 0.5 .. 2  Like <1 for deeper and >1 for higher.\n"
 						  "gainin is typicaly around 1.0\n"
 						  "gainout is typicaly around 0.05\n"
 						  "dir  is R,W,B for read, write or both\n"
+						  "<step* > are reals that set cooresponding increments for DTMF based parameter tuning 0 disables tuning\n"
+						  "Tuning is done with 1,7 gainin; 2,8 pitch; 3,9 gainout\n"
 						  "";
 						  
 static const char *stop_app = "StopPitchShift";
@@ -131,6 +138,49 @@ static int audio_callback(
 		return 0; //pitch disabled in dis direction
  	}
  	//framesconsider++;
+ 	if (frame->frametype==AST_FRAME_DTMF_END) {
+		
+		if (frame->subclass=='1' && dsd->stepgainin>0) {
+			dsd->gainin+=dsd->stepgainin;
+			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
+			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
+			return 0;
+		}
+		if (frame->subclass=='7' && dsd->stepgainin>0) {
+			dsd->gainin-=dsd->stepgainin;
+			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
+			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
+			return 0;
+		}
+		if (frame->subclass=='3' && dsd->stepgainout>0) {
+			dsd->gainout+=dsd->stepgainout;
+			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
+			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
+			return 0;
+		}
+		if (frame->subclass=='9' && dsd->stepgainout>0) {
+			dsd->gainout-=dsd->stepgainout;
+			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
+			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
+			return 0;
+		}
+		
+		if (frame->subclass=='2' && dsd->steppitch>0) {
+			dsd->pitch+=dsd->steppitch;
+			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
+			return 0;
+		}
+		if (frame->subclass=='8' && dsd->steppitch>0) {
+			dsd->pitch-=dsd->steppitch;
+			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
+			return 0;
+		}
+		return 0;
+	}
 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
@@ -142,11 +192,11 @@ static int audio_callback(
 		if (!dsd->ctxR) {
 			switch (frame->subclass) {
 				case AST_FORMAT_SLINEAR:
-					dsd->ctxR=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxR=PitchShift_Init(8000,11,16, dsd->gainin,dsd->gainout,S16);
 				break;
 				case AST_FORMAT_SLINEAR16:
 					ast_log(LOG_DEBUG, "Note this frame (dir=READ) is 16kHz\n");
-					dsd->ctxR=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxR=PitchShift_Init(16000,12,16, dsd->gainin,dsd->gainout,S16);
 				break;
 				default:
 					ast_channel_unlock(chan);
@@ -164,11 +214,11 @@ static int audio_callback(
 		if (!dsd->ctxW) {
 			switch (frame->subclass) {
 				case AST_FORMAT_SLINEAR:
-					dsd->ctxW=PitchShiftInit(8000,10,4, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxW=PitchShift_Init(8000,11,16, dsd->gainin,dsd->gainout,S16);
 					break;
 				case AST_FORMAT_SLINEAR16:
 					ast_log(LOG_DEBUG, "Note this frame (dir=WRITE) is 16kHz\n");
-					dsd->ctxW=PitchShiftInit(16000,10,4, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxW=PitchShift_Init(16000,12,16, dsd->gainin,dsd->gainout,S16);
 					break;
 				default:
 					ast_channel_unlock(chan);
@@ -202,14 +252,14 @@ static void pitchshift_ds_free(void *data)
 	struct pitchshift_dsd *dsd;
 	if (data) {
 		dsd = (struct pitchshift_dsd *)data;
-		if (dsd->ctxR) PitchShiftDeInit(dsd->ctxR);
-		if (dsd->ctxW) PitchShiftDeInit(dsd->ctxW);
+		if (dsd->ctxR) PitchShift_DeInit(dsd->ctxR);
+		if (dsd->ctxW) PitchShift_DeInit(dsd->ctxW);
 		ast_free(data);
 	}
 	ast_log(LOG_DEBUG, "freed voice changer resources\n");
 }
 
-static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin, float gainout,enum ast_audiohook_direction dir)
+static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin, float gainout,enum ast_audiohook_direction dir, float steppitch,float stepgainin,float stepgainout)
 {
 	struct ast_datastore *ds= ast_channel_datastore_find(chan, dsinfo, app);
 	struct pitchshift_dsd *dsd=NULL;
@@ -220,8 +270,12 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin,
 		dsd->gainout=gainout;
 		dsd->gainin=gainin;
 		dsd->dir=dir;
-		if (dsd->ctxR) ChangeGaing (dsd->ctxR, gainin,gainout);
-		if (dsd->ctxW) ChangeGaing (dsd->ctxW, gainin,gainout);
+		dsd->stepgainin=stepgainin;
+		dsd->steppitch=steppitch;
+		dsd->stepgainout=stepgainout;
+		
+		if (dsd->ctxR) PitchShift_ChangeGain (dsd->ctxR, gainin,gainout);
+		if (dsd->ctxW) PitchShift_ChangeGain (dsd->ctxW, gainin,gainout);
 		
 		ast_channel_unlock(chan);
 		ast_log(LOG_DEBUG, "updating pitch to %f gi:%f  go:%f d:%d\n", pitch,gainin,gainout,dir);
@@ -240,6 +294,10 @@ static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin,
 		dsd->gainin=gainin;
 		dsd->gainout=gainout;
 		dsd->dir=dir;
+
+		dsd->stepgainin=stepgainin;
+		dsd->steppitch=steppitch;
+		dsd->stepgainout=stepgainout;
 		
 		ast_audiohook_lock(dsd->ah);
 		dsd->ah->manipulate_callback = audio_callback;
@@ -278,6 +336,9 @@ static int pitchshift_exec(struct ast_channel *chan, void *data)
 		 AST_APP_ARG(gainin);
 		 AST_APP_ARG(gainout);
 		 AST_APP_ARG(dir);
+		 AST_APP_ARG(steppitch);
+		 AST_APP_ARG(stepgainin);
+		 AST_APP_ARG(stepgainout);
 	);
 	
 	if (ast_strlen_zero(data)) {
@@ -293,6 +354,8 @@ static int pitchshift_exec(struct ast_channel *chan, void *data)
 	int rc;
 	struct ast_module_user *u;
 	float pitch=1,gainin=1,gainout=0.05;
+	float steppitch=0,stepgainin=0,stepgainout=0;
+	
 	enum ast_audiohook_direction dir=AST_AUDIOHOOK_DIRECTION_READ;
 	if (args.pitch) pitch = strtof(args.pitch, NULL);
 	if (args.gainin) gainin = strtof(args.gainin, NULL);
@@ -301,9 +364,12 @@ static int pitchshift_exec(struct ast_channel *chan, void *data)
 		if (*args.dir=='W') dir=AST_AUDIOHOOK_DIRECTION_WRITE;
 		else if (*args.dir=='B') dir=AST_AUDIOHOOK_DIRECTION_BOTH;
 	}
+	if (args.stepgainin) stepgainin = strtof(args.stepgainin, NULL);
+	if (args.stepgainout) stepgainout = strtof(args.stepgainout, NULL);
+	if (args.steppitch) steppitch = strtof(args.steppitch, NULL);
 	
 	u = ast_module_user_add(chan);
-	rc = setup_pitchshift(chan, pitch,gainin,gainout,dir);
+	rc = setup_pitchshift(chan, pitch,gainin,gainout,dir,steppitch,stepgainin,stepgainout);
 	ast_module_user_remove(u);
 	return rc;
 }
@@ -337,8 +403,8 @@ static int  pitchshift_addgo_exec (struct ast_channel *chan, void *data){
 		if (dsd) {
 			dsd->gainout+=gainoutadd;
 			ast_log(LOG_DEBUG, "new gainout %f\n",dsd->gainout);
-			if (dsd->ctxR) ChangeOutGaing(dsd->ctxR,dsd->gainout);
-			if (dsd->ctxW) ChangeOutGaing(dsd->ctxW,dsd->gainout);
+			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
 		}
 	}
 	ast_channel_unlock(chan);
@@ -360,8 +426,8 @@ static int  pitchshift_addgi_exec (struct ast_channel *chan, void *data){
 		if (dsd) {
 			dsd->gainin+=gaininadd;
 			ast_log(LOG_DEBUG, "new gainin %f\n",dsd->gainin);
-			if (dsd->ctxR) ChangeInGaing(dsd->ctxR,dsd->gainin);
-			if (dsd->ctxW) ChangeInGaing(dsd->ctxW,dsd->gainin);
+			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
 		}
 	}
 	ast_channel_unlock(chan);
@@ -428,4 +494,4 @@ static int load_module(void)
 	return res;
 }
 
-AST_MODULE_INFO_STANDARD(ASTERISK_GPL_KEY, "Voice Changer");
+AST_MODULE_INFO_STANDARD(ASTERISK_GPL_KEY, "Pitch Shift");
