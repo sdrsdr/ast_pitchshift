@@ -124,7 +124,61 @@ static int audio_callback(
 		return 0;
 	}
 	
-	if (dsd->pitch==1 || dsd->pitch<0.5 || dsd->pitch>2 ) {
+	
+	if (frame->frametype==AST_FRAME_DTMF_END) {
+		
+		if (frame->subclass=='1' && dsd->stepgainin>0) {
+			dsd->gainin+=dsd->stepgainin;
+			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
+			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		if (frame->subclass=='7' && dsd->stepgainin>0) {
+			dsd->gainin-=dsd->stepgainin;
+			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
+			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
+			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		if (frame->subclass=='3' && dsd->stepgainout>0) {
+			dsd->gainout+=dsd->stepgainout;
+			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
+			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		if (frame->subclass=='9' && dsd->stepgainout>0) {
+			dsd->gainout-=dsd->stepgainout;
+			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
+			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
+			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		
+		if (frame->subclass=='2' && dsd->steppitch>0) {
+			dsd->pitch+=dsd->steppitch;
+			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		if (frame->subclass=='8' && dsd->steppitch>0) {
+			dsd->pitch-=dsd->steppitch;
+			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
+			ast_channel_unlock(chan);
+			return 0;
+		}
+		ast_channel_unlock(chan);
+		return 0;
+	}
+	
+	
+	
+	if (dsd->pitch==1.0 || dsd->pitch<0.5 || dsd->pitch>2 ) {
 		ast_channel_unlock(chan);
 		return 0; //pitch disabled at this levels
 	}
@@ -137,51 +191,8 @@ static int audio_callback(
  		ast_channel_unlock(chan);
 		return 0; //pitch disabled in dis direction
  	}
- 	//framesconsider++;
- 	if (frame->frametype==AST_FRAME_DTMF_END) {
-		
-		if (frame->subclass=='1' && dsd->stepgainin>0) {
-			dsd->gainin+=dsd->stepgainin;
-			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
-			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
-			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
-			return 0;
-		}
-		if (frame->subclass=='7' && dsd->stepgainin>0) {
-			dsd->gainin-=dsd->stepgainin;
-			if (dsd->ctxR) PitchShift_ChangeGainIn(dsd->ctxR,dsd->gainin);
-			if (dsd->ctxW) PitchShift_ChangeGainIn(dsd->ctxW,dsd->gainin);
-			ast_log(LOG_DEBUG, "New gainin:%f\n",dsd->gainin);
-			return 0;
-		}
-		if (frame->subclass=='3' && dsd->stepgainout>0) {
-			dsd->gainout+=dsd->stepgainout;
-			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
-			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
-			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
-			return 0;
-		}
-		if (frame->subclass=='9' && dsd->stepgainout>0) {
-			dsd->gainout-=dsd->stepgainout;
-			if (dsd->ctxR) PitchShift_ChangeGainOut(dsd->ctxR,dsd->gainout);
-			if (dsd->ctxW) PitchShift_ChangeGainOut(dsd->ctxW,dsd->gainout);
-			ast_log(LOG_DEBUG, "New gainout:%f\n",dsd->gainout);
-			return 0;
-		}
-		
-		if (frame->subclass=='2' && dsd->steppitch>0) {
-			dsd->pitch+=dsd->steppitch;
-			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
-			return 0;
-		}
-		if (frame->subclass=='8' && dsd->steppitch>0) {
-			dsd->pitch-=dsd->steppitch;
-			ast_log(LOG_DEBUG, "New pitch:%f\n",dsd->pitch);
-			return 0;
-		}
-		return 0;
-	}
-	
+
+ 	
 	if (frame->data.ptr == NULL || frame->samples == 0 || frame->frametype != AST_FRAME_VOICE) {
 		ast_channel_unlock(chan);
 		ast_log(LOG_WARNING, "got incompatible frame type:%d  sc:%d\n",frame->frametype,frame->subclass);
@@ -192,7 +203,7 @@ static int audio_callback(
 		if (!dsd->ctxR) {
 			switch (frame->subclass) {
 				case AST_FORMAT_SLINEAR:
-					dsd->ctxR=PitchShift_Init(8000,11,16, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxR=PitchShift_Init(8000,10,16, dsd->gainin,dsd->gainout,S16);
 				break;
 				case AST_FORMAT_SLINEAR16:
 					ast_log(LOG_DEBUG, "Note this frame (dir=READ) is 16kHz\n");
@@ -214,11 +225,11 @@ static int audio_callback(
 		if (!dsd->ctxW) {
 			switch (frame->subclass) {
 				case AST_FORMAT_SLINEAR:
-					dsd->ctxW=PitchShift_Init(8000,11,16, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxW=PitchShift_Init(8000,10,16, dsd->gainin,dsd->gainout,S16);
 					break;
 				case AST_FORMAT_SLINEAR16:
 					ast_log(LOG_DEBUG, "Note this frame (dir=WRITE) is 16kHz\n");
-					dsd->ctxW=PitchShift_Init(16000,12,16, dsd->gainin,dsd->gainout,S16);
+					dsd->ctxW=PitchShift_Init(16000,11,16, dsd->gainin,dsd->gainout,S16);
 					break;
 				default:
 					ast_channel_unlock(chan);
@@ -238,8 +249,16 @@ static int audio_callback(
 		return 0;
 	}
 	//PitchShift(dsd->ctx,dsd->pitch,frame->samples*dsd->ctx->bytes_per_sample,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
+	
+	static int logframeskip =0;
+	
+	
 	if (ctx) {
-		//framesprocess++;
+		if ((dsd->dir!=AST_AUDIOHOOK_DIRECTION_BOTH &&  logframeskip==22) || logframeskip==44) {
+			logframeskip=0;
+			ast_log(LOG_DEBUG, "current processing p:%f gi:%f go:%f dir:%d\n",dsd->pitch,dsd->gainin,dsd->gainout,dsd->dir);
+		} else logframeskip++;
+		
 		PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	}
 	
@@ -249,6 +268,7 @@ static int audio_callback(
 
 static void pitchshift_ds_free(void *data)
 {
+	ast_log(LOG_DEBUG, "freed voice changer resources\n");
 	struct pitchshift_dsd *dsd;
 	if (data) {
 		dsd = (struct pitchshift_dsd *)data;
@@ -256,7 +276,7 @@ static void pitchshift_ds_free(void *data)
 		if (dsd->ctxW) PitchShift_DeInit(dsd->ctxW);
 		ast_free(data);
 	}
-	ast_log(LOG_DEBUG, "freed voice changer resources\n");
+	//ast_log(LOG_DEBUG, "freed voice changer resources_out\n");
 }
 
 static int setup_pitchshift(struct ast_channel *chan, float pitch, float gainin, float gainout,enum ast_audiohook_direction dir, float steppitch,float stepgainin,float stepgainout)
@@ -381,6 +401,11 @@ static int remove_pitchshift(struct ast_channel *chan)
 	ast_channel_lock(chan);
 	ds = ast_channel_datastore_find(chan, dsinfo, app);
 	if (ds) {
+		struct pitchshift_dsd * dsd=ds->data;
+		//ast_log(LOG_DEBUG, "removing pitchshift AH from channel...\n");
+		ast_audiohook_remove (chan,dsd->ah);
+		//ast_log(LOG_DEBUG, "removing pitchshift AH from channel...DONE\n");
+		ast_audiohook_destroy (dsd->ah);
 		ast_channel_datastore_remove(chan, ds);
 		ast_datastore_free(ds);
 	}
