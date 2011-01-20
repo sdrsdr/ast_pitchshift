@@ -254,11 +254,13 @@ static int audio_callback(
 	
 	
 	if (ctx) {
+		/*
 		if ((dsd->dir!=AST_AUDIOHOOK_DIRECTION_BOTH &&  logframeskip==22) || logframeskip==44) {
 			logframeskip=0;
 			ast_log(LOG_DEBUG, "current processing p:%f gi:%f go:%f dir:%d\n",dsd->pitch,dsd->gainin,dsd->gainout,dsd->dir);
 		} else logframeskip++;
-		
+		*/
+
 		PitchShift(ctx,dsd->pitch,frame->samples<<1,  (u_int8_t *)frame->data.ptr,(u_int8_t *)frame->data.ptr);
 	}
 	
